@@ -3,13 +3,21 @@ import requests, condition
 from datetime import datetime, timedelta
 
 URL = "https://qbittorrent/api/v2/"
-SID = "" # SID can be found in your qBittorrent cookies
-CONDITIONS = [condition.Condition("magnet_uri", "nyaa", 0), condition.Condition("default", "", 60)]
+USER = "" # qBittorrent username
+PASSWORD = "" # qBittorrent password
 
-COOKIES = {"SID": SID}
+# Torrent is deleted after the number of days of the first condition that matches
+# If no one match, take DEFAULT DAYS (None = never)
 
-if (URL[-1] != "/"):
-    URL += "/"
+# Here, if magnet contain 'nyaa', the torrent is deleted immediately, else it will be deleted after 30 days
+CONDITIONS = [condition.Condition("magnet_uri", "nyaa", 0)]
+DEFAULT_DAYS = 30
+
+
+login_data = {
+    "username": USER,
+    "password": PASSWORD
+}
 
 def log(level, message):
     print(datetime.now().strftime('%d-%m-%Y, %H:%M:%S') + " --- [" + str(level) + "] " + str(message))
@@ -17,15 +25,22 @@ def log(level, message):
 def check_conditions(torrent_data):
     if torrent_data["progress"] == 1:
         for CONDITION in CONDITIONS:
-            if CONDITION.id == "default":
+            if CONDITION.included_value in torrent_data[CONDITION.id]:
                 return CONDITION.days
-            elif CONDITION.included_value in torrent_data[CONDITION.id]:
-                return CONDITION.days
-    return None
+        return DEFAULT_DAYS
+    else:
+        return None
+
 
 log("INFO", "Job start !")
 
-response = requests.get(URL + "sync/maindata", cookies = COOKIES)
+session = requests.Session()
+session.post(URL + "auth/login", login_data)
+
+if (URL[-1] != "/"):
+    URL += "/"
+
+response = session.get(URL + "sync/maindata")
 torrents = response.json()["torrents"]
 
 for torrent in torrents:
@@ -37,7 +52,6 @@ for torrent in torrents:
         if added_on + days_delta < datetime.now():
             log("INFO", "DELETE TORRENT " + torrent_data["name"])
             req_data = {"hashes": torrent, "deleteFiles": "true"}
-            requests.post(URL + "torrents/delete", data=req_data, cookies=COOKIES)
+            session.post(URL + "torrents/delete", data=req_data)
 
-            
 log("INFO", "Job end !")
